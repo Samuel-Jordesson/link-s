@@ -35,6 +35,8 @@ export const api = {
   deleteLink: (pageId, linkId) => request('DELETE', `/api/pages/${pageId}/links/${linkId}`),
   reorderLinks: (pageId, ids) => request('PUT', `/api/pages/${pageId}/links/reorder`, { ids }),
 
+  listFonts: () => request('GET', '/api/fonts'),
+
   getPublic: (slug) => request('GET', `/api/public/${slug}`),
 
   async upload(file) {

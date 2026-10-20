@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { FiSearch } from 'react-icons/fi';
 import Modal from './Modal.jsx';
+import HexInput from './HexInput.jsx';
 
 const SETS = [
   // 'fa' e não 'fa6': o fa6 já é importado estaticamente em socials.js e viria inteiro no bundle principal
@@ -36,19 +37,20 @@ const PT = {
   informacao: 'info', aviso: 'warning', verificado: 'check', certo: 'check', lista: 'list', grafico: 'chart',
 };
 
-const normalize = (s) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+const normalize = (s) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
 
 export function iconToDataUrl(Icon, color) {
   const svg = renderToStaticMarkup(<Icon size={64} color={color} />).replaceAll('currentColor', color);
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
-export default function IconLibrary({ initial, onSelect, onClose }) {
+// onPreview: chamado a cada troca de ícone/cor, para o preview atualizar em tempo real
+export default function IconLibrary({ initial, defaultColor = '#000000', onSelect, onPreview, onClose }) {
   const [icons, setIcons] = useState(null);
   const [query, setQuery] = useState('');
   const [set, setSet] = useState('all');
   const [selected, setSelected] = useState(initial ? { set: initial.set, name: initial.name } : null);
-  const [color, setColor] = useState(initial?.color || '#000000');
+  const [color, setColor] = useState(initial?.color || defaultColor);
 
   useEffect(() => {
     Promise.all(SETS.map((s) => s.load().then((mod) => ({ s, mod })))).then((loaded) => {
@@ -83,8 +85,14 @@ export default function IconLibrary({ initial, onSelect, onClose }) {
 
   const current = selected && icons?.find((i) => i.set === selected.set && i.name === selected.name);
 
+  const build = () => ({ image: iconToDataUrl(current.Icon, color), icon: { set: current.set, name: current.name, color } });
+
+  useEffect(() => {
+    if (current) onPreview?.(build());
+  }, [current, color]);
+
   function confirm() {
-    onSelect({ image: iconToDataUrl(current.Icon, color), icon: { set: current.set, name: current.name, color } });
+    onSelect(build());
   }
 
   return (
@@ -109,6 +117,7 @@ export default function IconLibrary({ initial, onSelect, onClose }) {
               <label className="swatch swatch-custom" title="Outra cor">
                 <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
               </label>
+              <HexInput value={color} onChange={setColor} showDot />
             </div>
           </div>
           <button className="btn btn-dark" disabled={!current} onClick={confirm}>

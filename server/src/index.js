@@ -3,6 +3,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { db } from './db.js';
@@ -68,6 +69,45 @@ function requirePage(req, res, next) {
 // ---------- Login ----------
 authRoutes(app);
 app.use('/api/pages', requireAuth);
+
+// ---------- Google Fonts ----------
+// Lista completa das fontes do Google, baixada uma vez e guardada em memória por 24h
+const FONTS_URL = 'https://fonts.google.com/metadata/fonts';
+const FONTS_TTL = 24 * 60 * 60 * 1000;
+const PREFERRED_WEIGHTS = [400, 500, 600, 700];
+let fontsCache = { at: 0, list: null };
+
+async function getGoogleFonts() {
+  if (fontsCache.list && Date.now() - fontsCache.at < FONTS_TTL) return fontsCache.list;
+  const res = await fetch(FONTS_URL);
+  if (!res.ok) throw new Error(`Google Fonts respondeu ${res.status}`);
+  const text = (await res.text()).replace(/^\)\]\}'/, '');
+  const list = JSON.parse(text)
+    .familyMetadataList.map((f) => {
+      const all = Object.keys(f.fonts)
+        .filter((k) => !k.endsWith('i'))
+        .map(Number)
+        .sort((a, b) => a - b);
+      const preferred = all.filter((w) => PREFERRED_WEIGHTS.includes(w));
+      return {
+        name: f.family,
+        category: f.category,
+        weights: (preferred.length ? preferred : all.slice(0, 1)).join(';'),
+        popularity: f.popularity,
+      };
+    })
+    .sort((a, b) => a.popularity - b.popularity);
+  fontsCache = { at: Date.now(), list };
+  return list;
+}
+
+app.get('/api/fonts', requireAuth, async (_req, res) => {
+  try {
+    res.json(await getGoogleFonts());
+  } catch (err) {
+    res.status(502).json({ error: `Não foi possível carregar as fontes: ${err.message}` });
+  }
+});
 
 // ---------- Upload ----------
 app.post('/api/upload', requireAuth, upload.single('file'), (req, res) => {
@@ -230,4 +270,15 @@ if (fs.existsSync(CLIENT_DIST)) {
   app.get('*', (_req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
 }
 
-app.listen(PORT, () => console.log(`API rodando em http://localhost:${PORT}`));
+// IPv4 da máquina na rede (para acessar de outro aparelho)
+const networkIps = () =>
+  Object.values(os.networkInterfaces())
+    .flat()
+    .filter((i) => i && i.family === 'IPv4' && !i.internal)
+    .map((i) => i.address);
+
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor rodando:`);
+  console.log(`  Local:   http://localhost:${PORT}`);
+  for (const ip of networkIps()) console.log(`  Rede:    http://${ip}:${PORT}`);
+});

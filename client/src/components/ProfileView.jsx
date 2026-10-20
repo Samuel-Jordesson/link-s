@@ -9,7 +9,7 @@ export default function ProfileView({ page, preview = false }) {
   const theme = withDefaults(page.theme);
   const links = page.links.filter((l) => l.active !== false);
 
-  useEffect(() => loadFont(theme.font), [theme.font]);
+  useEffect(() => loadFont(theme.font, theme.fontWeights), [theme.font, theme.fontWeights]);
 
   const style = {
     '--bg': theme.background,

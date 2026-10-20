@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: true, // aceita acesso pelo IP da rede e mostra o endereço "Network" ao rodar
       port: Number(env.CLIENT_PORT) || 5173,
       proxy: {
         '/api': API,

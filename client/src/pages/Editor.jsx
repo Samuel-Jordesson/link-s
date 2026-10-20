@@ -13,6 +13,7 @@ import {
   FiUpload,
   FiCheck,
   FiImage,
+  FiSearch,
 } from 'react-icons/fi';
 import { RxDragHandleDots2 } from 'react-icons/rx';
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors } from '@dnd-kit/core';
@@ -22,12 +23,14 @@ import { CSS } from '@dnd-kit/utilities';
 import { api, ADMIN_PATH } from '../api.js';
 import AdminActions from '../components/AdminActions.jsx';
 import { SOCIALS } from '../socials.js';
-import { withDefaults, PRESETS, FONTS, loadFont } from '../theme.js';
+import { withDefaults, PRESETS, FONTS, loadFontPreview } from '../theme.js';
 import ProfileView from '../components/ProfileView.jsx';
 import ImageUpload from '../components/ImageUpload.jsx';
+import HexInput from '../components/HexInput.jsx';
 import SocialModal from '../components/SocialModal.jsx';
 
 const IconLibrary = lazy(() => import('../components/IconLibrary.jsx'));
+const FontSearch = lazy(() => import('../components/FontSearch.jsx'));
 
 const EMPTY_LINK = { title: '', subtitle: '', url: '', image: '', icon: null };
 
@@ -36,6 +39,7 @@ export default function Editor() {
   const [page, setPage] = useState(null);
   const [tab, setTab] = useState('content');
   const [status, setStatus] = useState('');
+  const [draft, setDraft] = useState(null); // link sendo editado, mostrado no preview antes de salvar
   const pending = useRef({});
   const timer = useRef(null);
 
@@ -114,7 +118,7 @@ export default function Editor() {
         <section className="panel">
           <div className="panel-inner">
             {tab === 'content' ? (
-              <ContentTab page={page} setPage={setPage} patch={patch} />
+              <ContentTab page={page} setPage={setPage} patch={patch} onDraft={setDraft} />
             ) : (
               <DesignTab page={page} patch={patch} />
             )}
@@ -123,7 +127,7 @@ export default function Editor() {
 
         <aside className="preview">
           <div className="phone">
-            <ProfileView page={page} preview />
+            <ProfileView page={withDraft(page, draft)} preview />
           </div>
           <p className="preview-url">{publicUrl.replace(/^https?:\/\//, '')}</p>
         </aside>
@@ -132,9 +136,28 @@ export default function Editor() {
   );
 }
 
-function ContentTab({ page, setPage, patch }) {
+// Junta o rascunho do formulário aos links da página (edição substitui, novo entra no topo)
+function withDraft(page, draft) {
+  if (!draft) return page;
+  const link = { ...draft, title: draft.title || 'Novo link', active: true };
+  const links = draft.id
+    ? page.links.map((l) => (l.id === draft.id ? { ...l, ...link } : l))
+    : [{ ...link, id: 'draft' }, ...page.links];
+  return { ...page, links };
+}
+
+function ContentTab({ page, setPage, patch, onDraft }) {
   const [form, setForm] = useState(null); // null | { ...link } (com id = edição)
   const [library, setLibrary] = useState(false);
+  const beforeLibrary = useRef(null); // imagem/ícone antes de abrir a biblioteca (para desfazer ao cancelar)
+
+  useEffect(() => onDraft(form), [form]);
+  useEffect(() => () => onDraft(null), []);
+
+  function openLibrary() {
+    beforeLibrary.current = { image: form.image, icon: form.icon };
+    setLibrary(true);
+  }
   const [social, setSocial] = useState(undefined); // undefined = fechado, null = novo, objeto = editar
 
   function saveSocial(value) {
@@ -247,7 +270,7 @@ function ContentTab({ page, setPage, patch }) {
                   label="Imagem"
                   contain={Boolean(form.icon)}
                 />
-                <button type="button" className="btn btn-light btn-xs" onClick={() => setLibrary(true)}>
+                <button type="button" className="btn btn-light btn-xs" onClick={openLibrary}>
                   <FiGrid /> Biblioteca
                 </button>
                 {form.image && (
@@ -308,9 +331,15 @@ function ContentTab({ page, setPage, patch }) {
         <Suspense fallback={null}>
           <IconLibrary
             initial={form?.icon}
-            onClose={() => setLibrary(false)}
+            defaultColor={withDefaults(page.theme).iconColor}
+            onPreview={(data) => setForm((f) => ({ ...f, ...data }))}
+            onClose={() => {
+              setForm((f) => ({ ...f, ...beforeLibrary.current }));
+              setLibrary(false);
+            }}
             onSelect={({ image, icon }) => {
               setForm((f) => ({ ...f, image, icon }));
+              patch({ theme: { iconColor: icon.color } });
               setLibrary(false);
             }}
           />
@@ -357,21 +386,27 @@ function SortableLink({ link, onToggle, onEdit, onRemove }) {
 
 function ColorField({ label, value, onChange }) {
   return (
-    <label className="color-field">
-      <span className="color-swatch" style={{ background: value }}>
+    <div className="color-field">
+      <label className="color-swatch" style={{ background: value }} title="Escolher cor">
         <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
-      </span>
+      </label>
       <span className="color-label">{label}</span>
-      <code>{value}</code>
-    </label>
+      <HexInput value={value} onChange={onChange} />
+    </div>
   );
 }
 
 function DesignTab({ page, patch }) {
   const theme = withDefaults(page.theme);
   const setTheme = (fields) => patch({ theme: fields });
+  const [fontSearch, setFontSearch] = useState(false);
 
-  useEffect(() => FONTS.forEach((f) => loadFont(f.name)), []);
+  // Fonte escolhida pela busca que não está na grade: aparece no começo dela
+  const fontOptions = FONTS.some((f) => f.name === theme.font)
+    ? FONTS
+    : [{ name: theme.font, weights: theme.fontWeights }, ...FONTS];
+
+  useEffect(() => fontOptions.forEach((f) => loadFontPreview(f.name, f.weights)), [fontOptions.length]);
 
   return (
     <>
@@ -484,20 +519,40 @@ function DesignTab({ page, patch }) {
       <div className="section">
         <div className="section-title">Texto e fonte</div>
         <ColorField label="Cor do texto" value={theme.textColor} onChange={(textColor) => setTheme({ textColor })} />
+        <div className="fonts-head">
+          <span>Fonte: <strong>{theme.font}</strong></span>
+          <button className="btn btn-light btn-sm" onClick={() => setFontSearch(true)}>
+            <FiSearch /> Pesquisar fonte
+          </button>
+        </div>
         <div className="fonts">
-          {FONTS.map((f) => (
+          {fontOptions.map((f) => (
             <button
               key={f.name}
               className={`font-opt ${theme.font === f.name ? 'active' : ''}`}
-              style={{ fontFamily: `'${f.name}'` }}
-              onClick={() => setTheme({ font: f.name })}
+              style={{ fontFamily: `'${f.name}', system-ui` }}
+              onClick={() => setTheme({ font: f.name, fontWeights: f.weights ?? null })}
+              title={f.name}
             >
               <span className="font-aa">Aa</span>
-              <span>{f.name}</span>
+              <span className="font-name">{f.name}</span>
             </button>
           ))}
         </div>
       </div>
+
+      {fontSearch && (
+        <Suspense fallback={null}>
+          <FontSearch
+            current={theme.font}
+            onClose={() => setFontSearch(false)}
+            onSelect={(f) => {
+              setTheme({ font: f.name, fontWeights: f.weights });
+              setFontSearch(false);
+            }}
+          />
+        </Suspense>
+      )}
     </>
   );
 }
