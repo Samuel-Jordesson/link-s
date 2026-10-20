@@ -8,7 +8,7 @@ import { db } from './db.js';
 import { authRoutes, requireAuth } from './auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOAD_DIR = path.join(__dirname, '..', 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads');
 const CLIENT_DIST = path.join(__dirname, '..', '..', 'client', 'dist');
 const PORT = process.env.PORT || 3001;
 
